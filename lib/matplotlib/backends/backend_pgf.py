@@ -843,7 +843,7 @@ class FigureCanvasPgf(FigureCanvasBase):
         writeln(fh, r"\makeatother")
         writeln(fh, r"\endgroup")
 
-    def print_pgf(self, fname_or_fh, *args, **kwargs):
+    def print_pgf(self, fname_or_fh, **kwargs):
         """
         Output pgf macros for drawing the figure so it can be included and
         rendered in latex documents.
@@ -851,54 +851,51 @@ class FigureCanvasPgf(FigureCanvasBase):
         with cbook.open_file_cm(fname_or_fh, "w", encoding="utf-8") as file:
             if not cbook.file_requires_unicode(file):
                 file = codecs.getwriter("utf-8")(file)
-            self._print_pgf_to_fh(file, *args, **kwargs)
+            self._print_pgf_to_fh(file, **kwargs)
 
-    def print_pdf(self, fname_or_fh, *args, metadata=None, **kwargs):
+    def print_pdf(self, fname_or_fh, *, metadata=None, **kwargs):
         """Use LaTeX to compile a pgf generated figure to pdf."""
-        w, h = self.figure.get_figwidth(), self.figure.get_figheight()
+        w, h = self.figure.get_size_inches()
 
         info_dict = _create_pdf_info_dict('pgf', metadata or {})
-        hyperref_options = ','.join(
+        pdfinfo = ','.join(
             _metadata_to_str(k, v) for k, v in info_dict.items())
 
+        # print figure to pgf and compile it with latex
         with TemporaryDirectory() as tmpdir:
             tmppath = pathlib.Path(tmpdir)
-
-            # print figure to pgf and compile it with latex
-            self.print_pgf(tmppath / "figure.pgf", *args, **kwargs)
-
-            latexcode = """
-\\PassOptionsToPackage{pdfinfo={%s}}{hyperref}
-\\RequirePackage{hyperref}
-\\documentclass[12pt]{minimal}
-\\usepackage[paperwidth=%fin, paperheight=%fin, margin=0in]{geometry}
-%s
-%s
-\\usepackage{pgf}
-
-\\begin{document}
-\\centering
-\\input{figure.pgf}
-\\end{document}""" % (hyperref_options, w, h, get_preamble(), get_fontspec())
-            (tmppath / "figure.tex").write_text(latexcode, encoding="utf-8")
-
+            self.print_pgf(tmppath / "figure.pgf", **kwargs)
+            (tmppath / "figure.tex").write_text(
+                "\n".join([
+                    r"\PassOptionsToPackage{pdfinfo={%s}}{hyperref}" % pdfinfo,
+                    r"\RequirePackage{hyperref}",
+                    r"\documentclass[12pt]{minimal}",
+                    r"\usepackage[papersize={%fin,%fin}, margin=0in]{geometry}"
+                    % (w, h),
+                    get_preamble(),
+                    get_fontspec(),
+                    r"\usepackage{pgf}",
+                    r"\begin{document}",
+                    r"\centering",
+                    r"\input{figure.pgf}",
+                    r"\end{document}",
+                ]), encoding="utf-8")
             texcommand = mpl.rcParams["pgf.texsystem"]
             cbook._check_and_log_subprocess(
                 [texcommand, "-interaction=nonstopmode", "-halt-on-error",
                  "figure.tex"], _log, cwd=tmpdir)
-
             with (tmppath / "figure.pdf").open("rb") as orig, \
                  cbook.open_file_cm(fname_or_fh, "wb") as dest:
                 shutil.copyfileobj(orig, dest)  # copy file contents to target
 
-    def print_png(self, fname_or_fh, *args, **kwargs):
+    def print_png(self, fname_or_fh, **kwargs):
         """Use LaTeX to compile a pgf figure to pdf and convert it to png."""
         converter = make_pdf_to_png_converter()
         with TemporaryDirectory() as tmpdir:
             tmppath = pathlib.Path(tmpdir)
             pdf_path = tmppath / "figure.pdf"
             png_path = tmppath / "figure.png"
-            self.print_pdf(pdf_path, *args, **kwargs)
+            self.print_pdf(pdf_path, **kwargs)
             converter(pdf_path, png_path, dpi=self.figure.dpi)
             with png_path.open("rb") as orig, \
                  cbook.open_file_cm(fname_or_fh, "wb") as dest:
@@ -990,36 +987,20 @@ class PdfPages:
         self._file = BytesIO()
 
     def _write_header(self, width_inches, height_inches):
-        hyperref_options = ','.join(
+        pdfinfo = ','.join(
             _metadata_to_str(k, v) for k, v in self._info_dict.items())
-
-        latex_preamble = get_preamble()
-        latex_fontspec = get_fontspec()
-        latex_header = r"""\PassOptionsToPackage{{
-  pdfinfo={{
-    {metadata}
-  }}
-}}{{hyperref}}
-\RequirePackage{{hyperref}}
-\documentclass[12pt]{{minimal}}
-\usepackage[
-    paperwidth={width}in,
-    paperheight={height}in,
-    margin=0in
-]{{geometry}}
-{preamble}
-{fontspec}
-\usepackage{{pgf}}
-\setlength{{\parindent}}{{0pt}}
-
-\begin{{document}}%%
-""".format(
-            width=width_inches,
-            height=height_inches,
-            preamble=latex_preamble,
-            fontspec=latex_fontspec,
-            metadata=hyperref_options,
-        )
+        latex_header = "\n".join([
+            r"\PassOptionsToPackage{pdfinfo={%s}}{hyperref}" % pdfinfo,
+            r"\RequirePackage{hyperref}",
+            r"\documentclass[12pt]{minimal}",
+            r"\usepackage[papersize={%fin,%fin}, margin=0in]{geometry}"
+            % (width_inches, height_inches),
+            get_preamble(),
+            get_fontspec(),
+            r"\usepackage{pgf}",
+            r"\setlength{\parindent}{0pt}",
+            r"\begin{document}%",
+        ])
         self._file.write(latex_header.encode('utf-8'))
 
     def __enter__(self):

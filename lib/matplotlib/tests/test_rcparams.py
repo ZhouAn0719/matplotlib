@@ -481,11 +481,11 @@ def test_backend_fallback_headless(tmpdir):
     with pytest.raises(subprocess.CalledProcessError):
         subprocess.run(
             [sys.executable, "-c",
-             ("import matplotlib;" +
-              "matplotlib.use('tkagg');" +
-              "import matplotlib.pyplot")
+             "import matplotlib;"
+             "matplotlib.use('tkagg');"
+             "import matplotlib.pyplot"
              ],
-            env=env, check=True)
+            env=env, check=True, stderr=subprocess.DEVNULL)
 
 
 @pytest.mark.skipif(
@@ -496,7 +496,11 @@ def test_backend_fallback_headful(tmpdir):
     env = {**os.environ, "MPLBACKEND": "", "MPLCONFIGDIR": str(tmpdir)}
     backend = subprocess.check_output(
         [sys.executable, "-c",
-         "import matplotlib.pyplot; print(matplotlib.get_backend())"],
+         "import matplotlib as mpl; "
+         "assert dict.__getitem__(mpl.rcParams, 'backend') == "
+         "mpl.rcsetup._auto_backend_sentinel; "
+         "import matplotlib.pyplot; "
+         "print(matplotlib.get_backend())"],
         env=env, universal_newlines=True)
     # The actual backend will depend on what's installed, but at least tkagg is
     # present.

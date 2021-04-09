@@ -76,6 +76,27 @@ def test_rotate_rect():
     assert_almost_equal(rect1.get_verts(), new_verts)
 
 
+@check_figures_equal(extensions=['png'])
+def test_rotate_rect_draw(fig_test, fig_ref):
+    ax_test = fig_test.add_subplot()
+    ax_ref = fig_ref.add_subplot()
+
+    loc = (0, 0)
+    width, height = (1, 1)
+    angle = 30
+    rect_ref = Rectangle(loc, width, height, angle=angle)
+    ax_ref.add_patch(rect_ref)
+    assert rect_ref.get_angle() == angle
+
+    # Check that when the angle is updated after adding to an axes, that the
+    # patch is marked stale and redrawn in the correct location
+    rect_test = Rectangle(loc, width, height)
+    assert rect_test.get_angle() == 0
+    ax_test.add_patch(rect_test)
+    rect_test.set_angle(angle)
+    assert rect_test.get_angle() == angle
+
+
 def test_negative_rect():
     # These two rectangles have the same vertices, but starting from a
     # different point.  (We also drop the last vertex, which is a duplicate.)
@@ -127,17 +148,17 @@ def test_patch_alpha_coloring():
     cut_star2 = mpath.Path(verts + 1, codes)
 
     ax = plt.axes()
-    patch = mpatches.PathPatch(cut_star1,
-                               linewidth=5, linestyle='dashdot',
-                               facecolor=(1, 0, 0, 0.5),
-                               edgecolor=(0, 0, 1, 0.75))
-    ax.add_patch(patch)
-
     col = mcollections.PathCollection([cut_star2],
                                       linewidth=5, linestyles='dashdot',
                                       facecolor=(1, 0, 0, 0.5),
                                       edgecolor=(0, 0, 1, 0.75))
     ax.add_collection(col)
+
+    patch = mpatches.PathPatch(cut_star1,
+                               linewidth=5, linestyle='dashdot',
+                               facecolor=(1, 0, 0, 0.5),
+                               edgecolor=(0, 0, 1, 0.75))
+    ax.add_patch(patch)
 
     ax.set_xlim([-1, 2])
     ax.set_ylim([-1, 2])
@@ -157,19 +178,19 @@ def test_patch_alpha_override():
     cut_star2 = mpath.Path(verts + 1, codes)
 
     ax = plt.axes()
-    patch = mpatches.PathPatch(cut_star1,
-                               linewidth=5, linestyle='dashdot',
-                               alpha=0.25,
-                               facecolor=(1, 0, 0, 0.5),
-                               edgecolor=(0, 0, 1, 0.75))
-    ax.add_patch(patch)
-
     col = mcollections.PathCollection([cut_star2],
                                       linewidth=5, linestyles='dashdot',
                                       alpha=0.25,
                                       facecolor=(1, 0, 0, 0.5),
                                       edgecolor=(0, 0, 1, 0.75))
     ax.add_collection(col)
+
+    patch = mpatches.PathPatch(cut_star1,
+                               linewidth=5, linestyle='dashdot',
+                               alpha=0.25,
+                               facecolor=(1, 0, 0, 0.5),
+                               edgecolor=(0, 0, 1, 0.75))
+    ax.add_patch(patch)
 
     ax.set_xlim([-1, 2])
     ax.set_ylim([-1, 2])
@@ -196,17 +217,17 @@ def test_patch_custom_linestyle():
     cut_star2 = mpath.Path(verts + 1, codes)
 
     ax = plt.axes()
-    patch = mpatches.PathPatch(
-        cut_star1,
-        linewidth=5, linestyle=(0, (5, 7, 10, 7)),
-        facecolor=(1, 0, 0), edgecolor=(0, 0, 1))
-    ax.add_patch(patch)
-
     col = mcollections.PathCollection(
         [cut_star2],
         linewidth=5, linestyles=[(0, (5, 7, 10, 7))],
         facecolor=(1, 0, 0), edgecolor=(0, 0, 1))
     ax.add_collection(col)
+
+    patch = mpatches.PathPatch(
+        cut_star1,
+        linewidth=5, linestyle=(0, (5, 7, 10, 7)),
+        facecolor=(1, 0, 0), edgecolor=(0, 0, 1))
+    ax.add_patch(patch)
 
     ax.set_xlim([-1, 2])
     ax.set_ylim([-1, 2])

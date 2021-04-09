@@ -70,7 +70,7 @@ extensions = [
 exclude_patterns = [
     'api/prev_api_changes/api_changes_*/*',
     # Be sure to update users/whats_new.rst:
-    'users/prev_whats_new/whats_new_3.3.0.rst',
+    'users/prev_whats_new/whats_new_3.4.0.rst',
 ]
 
 
@@ -151,9 +151,9 @@ intersphinx_mapping = {
 
 # Sphinx gallery configuration
 sphinx_gallery_conf = {
-    'examples_dirs': ['../examples', '../tutorials'],
+    'examples_dirs': ['../examples', '../tutorials', '../plot_types'],
     'filename_pattern': '^((?!sgskip).)*$',
-    'gallery_dirs': ['gallery', 'tutorials'],
+    'gallery_dirs': ['gallery', 'tutorials', 'plot_types'],
     'doc_module': ('matplotlib', 'mpl_toolkits'),
     'reference_url': {
         'matplotlib': None,
@@ -198,7 +198,7 @@ master_doc = 'contents'
 try:
     SHA = subprocess.check_output(
         ['git', 'describe', '--dirty']).decode('utf-8').strip()
-# Catch the case where git is not installed locally, and use the versioneer
+# Catch the case where git is not installed locally, and use the setuptools_scm
 # version number instead
 except (subprocess.CalledProcessError, FileNotFoundError):
     SHA = matplotlib.__version__

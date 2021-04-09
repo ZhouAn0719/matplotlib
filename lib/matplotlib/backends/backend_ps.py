@@ -570,19 +570,11 @@ translate
         s = fontcmd % s
         tex = r'\color[rgb]{%s} %s' % (color, s)
 
-        corr = 0  # w/2*(fontsize-10)/10
-        if dict.__getitem__(mpl.rcParams, 'text.latex.preview'):
-            # use baseline alignment!
-            pos = _nums_to_str(x-corr, y)
-            self.psfrag.append(
-                r'\psfrag{%s}[Bl][Bl][1][%f]{\fontsize{%f}{%f}%s}' % (
-                    thetext, angle, fontsize, fontsize*1.25, tex))
-        else:
-            # Stick to the bottom alignment.
-            pos = _nums_to_str(x-corr, y-bl)
-            self.psfrag.append(
-                r'\psfrag{%s}[bl][bl][1][%f]{\fontsize{%f}{%f}%s}' % (
-                    thetext, angle, fontsize, fontsize*1.25, tex))
+        # Stick to the bottom alignment.
+        pos = _nums_to_str(x, y-bl)
+        self.psfrag.append(
+            r'\psfrag{%s}[bl][bl][1][%f]{\fontsize{%f}{%f}%s}' % (
+                thetext, angle, fontsize, fontsize*1.25, tex))
 
         self._pswriter.write(f"""\
 gsave
@@ -823,15 +815,17 @@ class FigureCanvasPS(FigureCanvasBase):
     def get_default_filetype(self):
         return 'ps'
 
+    @_api.delete_parameter("3.5", "args")
     def print_ps(self, outfile, *args, **kwargs):
-        return self._print_ps(outfile, 'ps', *args, **kwargs)
+        return self._print_ps(outfile, 'ps', **kwargs)
 
+    @_api.delete_parameter("3.5", "args")
     def print_eps(self, outfile, *args, **kwargs):
-        return self._print_ps(outfile, 'eps', *args, **kwargs)
+        return self._print_ps(outfile, 'eps', **kwargs)
 
     @_api.delete_parameter("3.4", "dpi")
     def _print_ps(
-            self, outfile, format, *args,
+            self, outfile, format, *,
             dpi=None, metadata=None, papertype=None, orientation='portrait',
             **kwargs):
 

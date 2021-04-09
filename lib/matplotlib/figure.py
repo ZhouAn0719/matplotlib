@@ -22,8 +22,6 @@ import numpy as np
 
 import matplotlib as mpl
 from matplotlib import docstring, projections
-from matplotlib import __version__ as _mpl_version
-
 import matplotlib.artist as martist
 from matplotlib.artist import (
     Artist, allow_rasterization, _finalize_rasterization)
@@ -50,6 +48,71 @@ _log = logging.getLogger(__name__)
 def _stale_figure_callback(self, val):
     if self.figure:
         self.figure.stale = val
+
+
+class _AxesStack(cbook.Stack):
+    """
+    Specialization of Stack, to handle all tracking of Axes in a Figure.
+
+    This stack stores ``ind, axes`` pairs, where ``ind`` is a serial index
+    tracking the order in which axes were added.
+
+    AxesStack is a callable; calling it returns the current axes.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._ind = 0
+
+    def as_list(self):
+        """
+        Return a list of the Axes instances that have been added to the figure.
+        """
+        return [a for i, a in sorted(self._elements)]
+
+    def _entry_from_axes(self, e):
+        return next(((ind, a) for ind, a in self._elements if a == e), None)
+
+    def remove(self, a):
+        """Remove the axes from the stack."""
+        super().remove(self._entry_from_axes(a))
+
+    def bubble(self, a):
+        """
+        Move the given axes, which must already exist in the stack, to the top.
+        """
+        return super().bubble(self._entry_from_axes(a))
+
+    def add(self, a):
+        """
+        Add Axes *a* to the stack.
+
+        If *a* is already on the stack, don't add it again.
+        """
+        # All the error checking may be unnecessary; but this method
+        # is called so seldom that the overhead is negligible.
+        _api.check_isinstance(Axes, a=a)
+
+        if a in self:
+            return
+
+        self._ind += 1
+        super().push((self._ind, a))
+
+    def __call__(self):
+        """
+        Return the active axes.
+
+        If no axes exists on the stack, then returns None.
+        """
+        if not len(self._elements):
+            return None
+        else:
+            index, axes = self._elements[self._pos]
+            return axes
+
+    def __contains__(self, a):
+        return a in self.as_list()
 
 
 class SubplotParams:
@@ -141,7 +204,7 @@ class FigureBase(Artist):
         self.figure = self
         # list of child gridspecs for this figure
         self._gridspecs = []
-        self._localaxes = cbook.Stack()  # keep track of axes at this level
+        self._localaxes = _AxesStack()  # track all axes and current axes
         self.artists = []
         self.lines = []
         self.patches = []
@@ -304,11 +367,15 @@ default: %(va)s
             Additional kwargs are `matplotlib.text.Text` properties.
         """
 
-        manual_position = ('x' in kwargs or 'y' in kwargs)
         suplab = getattr(self, info['name'])
 
-        x = kwargs.pop('x', info['x0'])
-        y = kwargs.pop('y', info['y0'])
+        x = kwargs.pop('x', None)
+        y = kwargs.pop('y', None)
+        autopos = x is None and y is None
+        if x is None:
+            x = info['x0']
+        if y is None:
+            y = info['y0']
 
         if 'horizontalalignment' not in kwargs and 'ha' not in kwargs:
             kwargs['horizontalalignment'] = info['ha']
@@ -331,8 +398,7 @@ default: %(va)s
             sup.remove()
         else:
             suplab = sup
-        if manual_position:
-            suplab.set_in_layout(False)
+        suplab._autopos = autopos
         setattr(self, info['name'], suplab)
         self.stale = True
         return suplab
@@ -716,8 +782,8 @@ default: %(va)s
 
     def _add_axes_internal(self, ax, key):
         """Private helper for `add_axes` and `add_subplot`."""
-        self._axstack.push(ax)
-        self._localaxes.push(ax)
+        self._axstack.add(ax)
+        self._localaxes.add(ax)
         self.sca(ax)
         ax._remove_method = self.delaxes
         # this is to support plt.subplot's re-selection logic
@@ -1692,6 +1758,8 @@ default: %(va)s
 
             """
             r0, *rest = inp
+            if isinstance(r0, str):
+                raise ValueError('List layout specification must be 2D')
             for j, r in enumerate(rest, start=1):
                 if isinstance(r, str):
                     raise ValueError('List layout specification must be 2D')
@@ -1976,27 +2044,22 @@ class SubFigure(FigureBase):
                     parent_pos=(self._subplotspec.rowspan,
                                 self._subplotspec.colspan))
 
-    def get_axes(self):
+    @property
+    def axes(self):
         """
-        Return a list of Axes in the SubFigure. You can access and modify the
-        Axes in the Figure through this list.
-
-        Do not modify the list itself. Instead, use `~.SubFigure.add_axes`,
-        `~.SubFigure.add_subplot` or `~.SubFigure.delaxes` to add or remove an
-        Axes.
-
-        Note: This is equivalent to the property `~.SubFigure.axes`.
-        """
-        return self._localaxes.as_list()
-
-    axes = property(get_axes, doc="""
         List of Axes in the SubFigure.  You can access and modify the Axes
         in the SubFigure through this list.
 
         Do not modify the list itself. Instead, use `~.SubFigure.add_axes`,
         `~.SubFigure.add_subplot` or `~.SubFigure.delaxes` to add or remove an
         Axes.
-        """)
+
+        Note: The `.SubFigure.axes` property and `~.SubFigure.get_axes` method
+        are equivalent.
+        """
+        return self._localaxes.as_list()
+
+    get_axes = axes.fget
 
     def draw(self, renderer):
         # docstring inherited
@@ -2109,6 +2172,10 @@ class Figure(FigureBase):
         # a proxy property), but that actually need to be on the figure for
         # pickling.
         self._canvas_callbacks = cbook.CallbackRegistry()
+        self._button_pick_id = self._canvas_callbacks.connect(
+            'button_press_event', lambda event: self.canvas.pick(event))
+        self._scroll_pick_id = self._canvas_callbacks.connect(
+            'scroll_event', lambda event: self.canvas.pick(event))
 
         if figsize is None:
             figsize = mpl.rcParams['figure.figsize']
@@ -2155,7 +2222,7 @@ class Figure(FigureBase):
 
         self.set_tight_layout(tight_layout)
 
-        self._axstack = cbook.Stack()  # track all figure axes and current axes
+        self._axstack = _AxesStack()  # track all figure axes and current axes
         self.clf()
         self._cachedRenderer = None
 
@@ -2209,27 +2276,24 @@ class Figure(FigureBase):
         try:
             self.canvas.manager.show()
         except NonGuiException as exc:
-            _api.warn_external(str(exc))
+            if warn:
+                _api.warn_external(str(exc))
 
-    def get_axes(self):
+    @property
+    def axes(self):
         """
-        Return a list of Axes in the Figure. You can access and modify the
-        Axes in the Figure through this list.
+        List of Axes in the Figure. You can access and modify the Axes in the
+        Figure through this list.
 
         Do not modify the list itself. Instead, use `~Figure.add_axes`,
         `~.Figure.add_subplot` or `~.Figure.delaxes` to add or remove an Axes.
 
-        Note: This is equivalent to the property `~.Figure.axes`.
+        Note: The `.Figure.axes` property and `~.Figure.get_axes` method are
+        equivalent.
         """
         return self._axstack.as_list()
 
-    axes = property(get_axes, doc="""
-        List of Axes in the Figure.  You can access and modify the Axes in the
-        Figure through this list.
-
-        Do not modify the list itself. Instead, use "`~Figure.add_axes`,
-        `~.Figure.add_subplot` or `~.Figure.delaxes` to add or remove an Axes.
-        """)
+    get_axes = axes.fget
 
     def _get_dpi(self):
         return self._dpi
@@ -2695,7 +2759,7 @@ class Figure(FigureBase):
         state["_cachedRenderer"] = None
 
         # add version information to the state
-        state['__mpl_version__'] = _mpl_version
+        state['__mpl_version__'] = mpl.__version__
 
         # check whether the figure manager (if any) is registered with pyplot
         from matplotlib import _pylab_helpers
@@ -2713,7 +2777,7 @@ class Figure(FigureBase):
         version = state.pop('__mpl_version__')
         restore_to_pylab = state.pop('_restore_to_pylab', False)
 
-        if version != _mpl_version:
+        if version != mpl.__version__:
             _api.warn_external(
                 f"This figure was saved with matplotlib version {version} and "
                 f"is unlikely to function correctly.")
@@ -2778,31 +2842,6 @@ class Figure(FigureBase):
         dpi : float or 'figure', default: :rc:`savefig.dpi`
             The resolution in dots per inch.  If 'figure', use the figure's
             dpi value.
-
-        quality : int, default: :rc:`savefig.jpeg_quality`
-            Applicable only if *format* is 'jpg' or 'jpeg', ignored otherwise.
-
-            The image quality, on a scale from 1 (worst) to 95 (best).
-            Values above 95 should be avoided; 100 disables portions of
-            the JPEG compression algorithm, and results in large files
-            with hardly any gain in image quality.
-
-            This parameter is deprecated.
-
-        optimize : bool, default: False
-            Applicable only if *format* is 'jpg' or 'jpeg', ignored otherwise.
-
-            Whether the encoder should make an extra pass over the image
-            in order to select optimal encoder settings.
-
-            This parameter is deprecated.
-
-        progressive : bool, default: False
-            Applicable only if *format* is 'jpg' or 'jpeg', ignored otherwise.
-
-            Whether the image should be stored as a progressive JPEG file.
-
-            This parameter is deprecated.
 
         facecolor : color or 'auto', default: :rc:`savefig.facecolor`
             The facecolor of the figure.  If 'auto', use the current figure

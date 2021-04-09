@@ -463,23 +463,6 @@ def validate_font_properties(s):
     return s
 
 
-def _validate_mathtext_fallback_to_cm(b):
-    """
-    Temporary validate for fallback_to_cm, while deprecated
-
-    """
-    if isinstance(b, str):
-        b = b.lower()
-    if b is None or b == 'none':
-        return None
-    else:
-        _api.warn_deprecated(
-            "3.3", message="Support for setting the 'mathtext.fallback_to_cm' "
-            "rcParam is deprecated since %(since)s and will be removed "
-            "%(removal)s; use 'mathtext.fallback : 'cm' instead.")
-        return validate_bool_maybe_none(b)
-
-
 def _validate_mathtext_fallback(s):
     _fallback_fonts = ['cm', 'stix', 'stixsans']
     if isinstance(s, str):
@@ -1103,7 +1086,6 @@ _validators = {
     "text.color":          validate_color,
     "text.usetex":         validate_bool,
     "text.latex.preamble": _validate_tex_preamble,
-    "text.latex.preview":  validate_bool,
     "text.hinting":        _validate_hinting,
     "text.hinting_factor": validate_int,
     "text.kerning_factor": validate_int,
@@ -1119,7 +1101,6 @@ _validators = {
                                 "stixsans", "custom"],
     "mathtext.default":        ["rm", "cal", "it", "tt", "sf", "bf", "default",
                                 "bb", "frak", "scr", "regular"],
-    "mathtext.fallback_to_cm": _validate_mathtext_fallback_to_cm,
     "mathtext.fallback":       _validate_mathtext_fallback,
 
     "image.aspect":          validate_aspect,  # equal, auto, a number
@@ -1337,7 +1318,6 @@ _validators = {
     'savefig.facecolor':    validate_color_or_auto,
     'savefig.edgecolor':    validate_color_or_auto,
     'savefig.orientation':  ['landscape', 'portrait'],
-    'savefig.jpeg_quality': validate_int,
     "savefig.format":       validate_string,
     "savefig.bbox":         validate_bbox,  # "tight", or "standard" (= None)
     "savefig.pad_inches":   validate_float,
@@ -1395,7 +1375,6 @@ _validators = {
     "keymap.grid_minor": validate_stringlist,
     "keymap.yscale":     validate_stringlist,
     "keymap.xscale":     validate_stringlist,
-    "keymap.all_axes":   validate_stringlist,
     "keymap.help":       validate_stringlist,
     "keymap.copy":       validate_stringlist,
 
@@ -1432,18 +1411,13 @@ _validators = {
     "_internal.classic_mode": validate_bool
 }
 _hardcoded_defaults = {  # Defaults not inferred from matplotlibrc.template...
-    # ... because it can"t be:
-    "backend": _auto_backend_sentinel,
     # ... because they are private:
     "_internal.classic_mode": False,
     # ... because they are deprecated:
     "animation.avconv_path": "avconv",
     "animation.avconv_args": [],
     "animation.html_args": [],
-    "mathtext.fallback_to_cm": None,
-    "keymap.all_axes": ["a"],
-    "savefig.jpeg_quality": 95,
-    "text.latex.preview": False,
+    # backend is handled separately when constructing rcParamsDefault.
 }
 _validators = {k: _convert_validator_spec(k, conv)
                for k, conv in _validators.items()}

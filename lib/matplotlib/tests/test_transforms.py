@@ -69,15 +69,12 @@ def test_external_transform_api():
                     mtransforms.Affine2D().scale(10).get_matrix())
 
 
-@image_comparison(['pre_transform_data'],
-                  tol=0.08, remove_text=True, style='mpl20')
+@image_comparison(['pre_transform_data'], remove_text=True, style='mpl20',
+                  tol=0.05)
 def test_pre_transform_plotting():
     # a catch-all for as many as possible plot layouts which handle
     # pre-transforming the data NOTE: The axis range is important in this
     # plot. It should be x10 what the data suggests it should be
-
-    # Remove this line when this test image is regenerated.
-    plt.rcParams['pcolormesh.snap'] = False
 
     ax = plt.axes()
     times10 = mtransforms.Affine2D().scale(10)
@@ -97,9 +94,8 @@ def test_pre_transform_plotting():
     u = 2*np.sin(x) + np.cos(y[:, np.newaxis])
     v = np.sin(x) - np.cos(y[:, np.newaxis])
 
-    df = 25. / 30.   # Compatibility factor for old test image
     ax.streamplot(x, y, u, v, transform=times10 + ax.transData,
-                  density=(df, df), linewidth=u**2 + v**2)
+                  linewidth=np.hypot(u, v))
 
     # reduce the vector data down a bit for barb and quiver plotting
     x, y = x[::3], y[::3]
@@ -458,6 +454,12 @@ class TestTransformPlotInterface:
 
 def assert_bbox_eq(bbox1, bbox2):
     assert_array_equal(bbox1.bounds, bbox2.bounds)
+
+
+def test_bbox_frozen_copies_minpos():
+    bbox = mtransforms.Bbox.from_extents(0.0, 0.0, 1.0, 1.0, minpos=1.0)
+    frozen = bbox.frozen()
+    assert_array_equal(frozen.minpos, bbox.minpos)
 
 
 def test_bbox_intersection():

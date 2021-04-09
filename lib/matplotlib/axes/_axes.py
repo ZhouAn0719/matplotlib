@@ -866,9 +866,9 @@ class Axes(_AxesBase):
         if line.get_clip_path() is None:
             line.set_clip_path(self.patch)
         if not line.get_label():
-            line.set_label(f"_line{len(self.lines)}")
-        self.lines.append(line)
-        line._remove_method = self.lines.remove
+            line.set_label(f"_child{len(self._children)}")
+        self._children.append(line)
+        line._remove_method = self._children.remove
         self.update_datalim(datalim)
 
         self._request_autoscale_view()
@@ -3282,26 +3282,18 @@ class Axes(_AxesBase):
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
         kwargs.setdefault('zorder', 2)
 
-        self._process_unit_info([("x", x), ("y", y)], kwargs, convert=False)
-
-        # Make sure all the args are iterable; use lists not arrays to preserve
-        # units.
-        if not np.iterable(x):
-            x = [x]
-
-        if not np.iterable(y):
-            y = [y]
-
+        # Casting to object arrays preserves units.
+        if not isinstance(x, np.ndarray):
+            x = np.asarray(x, dtype=object)
+        if not isinstance(y, np.ndarray):
+            y = np.asarray(y, dtype=object)
+        if xerr is not None and not isinstance(xerr, np.ndarray):
+            xerr = np.asarray(xerr, dtype=object)
+        if yerr is not None and not isinstance(yerr, np.ndarray):
+            yerr = np.asarray(yerr, dtype=object)
+        x, y = np.atleast_1d(x, y)  # Make sure all the args are iterable.
         if len(x) != len(y):
             raise ValueError("'x' and 'y' must have the same size")
-
-        if xerr is not None:
-            if not np.iterable(xerr):
-                xerr = [xerr] * len(x)
-
-        if yerr is not None:
-            if not np.iterable(yerr):
-                yerr = [yerr] * len(y)
 
         if isinstance(errorevery, Integral):
             errorevery = (0, errorevery)
@@ -3314,10 +3306,8 @@ class Axes(_AxesBase):
                 raise ValueError(
                     f'errorevery={errorevery!r} is a not a tuple of two '
                     f'integers')
-
         elif isinstance(errorevery, slice):
             pass
-
         elif not isinstance(errorevery, str) and np.iterable(errorevery):
             # fancy indexing
             try:
@@ -3329,6 +3319,8 @@ class Axes(_AxesBase):
         else:
             raise ValueError(
                 f"errorevery={errorevery!r} is not a recognized value")
+        everymask = np.zeros(len(x), bool)
+        everymask[errorevery] = True
 
         label = kwargs.pop("label", None)
         kwargs['label'] = '_nolegend_'
@@ -3372,6 +3364,12 @@ class Axes(_AxesBase):
         base_style.pop('markeredgecolor', None)
         base_style.pop('markevery', None)
         base_style.pop('linestyle', None)
+        base_style.pop('fillstyle', None)
+        base_style.pop('drawstyle', None)
+        base_style.pop('dash_capstyle', None)
+        base_style.pop('dash_joinstyle', None)
+        base_style.pop('solid_capstyle', None)
+        base_style.pop('solid_joinstyle', None)
 
         # Make the style dict for the line collections (the bars).
         eb_lines_style = {**base_style, 'color': ecolor}
@@ -3411,13 +3409,8 @@ class Axes(_AxesBase):
         xlolims = np.broadcast_to(xlolims, len(x)).astype(bool)
         xuplims = np.broadcast_to(xuplims, len(x)).astype(bool)
 
-        everymask = np.zeros(len(x), bool)
-        everymask[errorevery] = True
-
-        def apply_mask(arrays, mask):
-            # Return, for each array in *arrays*, the elements for which *mask*
-            # is True, without using fancy indexing.
-            return [[*itertools.compress(array, mask)] for array in arrays]
+        # Vectorized fancy-indexer.
+        def apply_mask(arrays, mask): return [array[mask] for array in arrays]
 
         def extract_err(name, err, data, lolims, uplims):
             """
@@ -3438,24 +3431,18 @@ class Axes(_AxesBase):
                 Error is only applied on **lower** side when this is True.  See
                 the note in the main docstring about this parameter's name.
             """
-            try:  # Asymmetric error: pair of 1D iterables.
-                a, b = err
-                iter(a)
-                iter(b)
-            except (TypeError, ValueError):
-                a = b = err  # Symmetric error: 1D iterable.
-            if np.ndim(a) > 1 or np.ndim(b) > 1:
+            try:
+                np.broadcast_to(err, (2, len(data)))
+            except ValueError:
                 raise ValueError(
-                    f"{name}err must be a scalar or a 1D or (2, n) array-like")
-            # Using list comprehensions rather than arrays to preserve units.
-            for e in [a, b]:
-                if len(data) != len(e):
-                    raise ValueError(
-                        f"The lengths of the data ({len(data)}) and the "
-                        f"error {len(e)} do not match")
-            low = [v if lo else v - e for v, e, lo in zip(data, a, lolims)]
-            high = [v if up else v + e for v, e, up in zip(data, b, uplims)]
-            return low, high
+                    f"'{name}err' (shape: {np.shape(err)}) must be a scalar "
+                    f"or a 1D or (2, n) array-like whose shape matches "
+                    f"'{name}' (shape: {np.shape(data)})") from None
+            # This is like
+            #     low, high = np.broadcast_to(...)
+            #     return data - low * ~lolims, data + high * ~uplims
+            # except that broadcast_to would strip units.
+            return data + np.row_stack([-(1 - lolims), 1 - uplims]) * err
 
         if xerr is not None:
             left, right = extract_err('x', xerr, x, xlolims, xuplims)
@@ -3713,6 +3700,28 @@ class Axes(_AxesBase):
         meanprops : dict, default: None
             The style of the mean.
 
+        Notes
+        -----
+        Box plots provide insight into distribution properties of the data.
+        However, they can be challenging to interpret for the unfamiliar
+        reader. The figure below illustrates the different visual features of
+        a box plot.
+
+        .. image:: /_static/boxplot_explanation.png
+           :alt: Illustration of box plot features
+           :scale: 50 %
+
+        The whiskers mark the range of the non-outlier data. The most common
+        definition of non-outlier is ``[Q1 - 1.5xIQR, Q3 + 1.5xIQR]``, which
+        is also the default in this function. Other whisker meanings can be
+        applied via the *whis* parameter.
+
+        See `Box plot <https://en.wikipedia.org/wiki/Box_plot>`_ on Wikipedia
+        for further information.
+
+        Violin plots (`~.Axes.violinplot`) add even more detail about the
+        statistical distribution by plotting the kernel density estimation
+        (KDE) as an estimation of the probability density function.
         """
 
         # Missing arguments default to rcParams.
@@ -4546,8 +4555,8 @@ default: :rc:`scatter.edgecolors`
                 # promote the facecolor to be the edgecolor
                 edgecolors = colors
                 # set the facecolor to 'none' (at the last chance) because
-                # we can not not fill a path if the facecolor is non-null.
-                # (which is defendable at the renderer level)
+                # we can not fill a path if the facecolor is non-null
+                # (which is defendable at the renderer level).
                 colors = 'none'
             else:
                 # if we are not nulling the face color we can do this
